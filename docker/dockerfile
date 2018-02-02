@@ -1,9 +1,7 @@
-FROM crossbario/autobahn-python:cpy3
+FROM python:3.6.2-stretch
 
 RUN apt-get update && apt-get install -y \
-  python3 \
   postgresql-server-dev-all \
-  python3-pip \
   supervisor \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
@@ -13,12 +11,12 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 COPY docker/entrypoint.sh /
 COPY docker/supervisor/rest.conf /etc/supervisor/conf.d
-COPY docker/.pypirc /root/
+#COPY docker/.pypirc /root/
 COPY docker/pip.conf /etc/
 
 
 COPY src /src
 WORKDIR /src
-RUN pip3 install -e .
+RUN cd /src && pip3 install --trusted-host pypi.econo.unlp.edu.ar --upgrade -e .
 
 ENTRYPOINT ["/entrypoint.sh"]
