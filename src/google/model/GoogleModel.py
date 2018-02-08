@@ -209,6 +209,7 @@ class GoogleModel:
 
                     datos["name"] = {"familyName": user["apellido"], "givenName": user["nombre"], "fullName": fullName}
 
+                    logging.debug('actualizando usuario')
                     r = service.users().update(userKey=userGoogle,body=datos).execute()
                     ds = cls._crearLog(r)
                     session.add(ds)
@@ -219,6 +220,7 @@ class GoogleModel:
                     aliases = [a['alias'] for a in r.get('aliases', [])]
                     for e in s.emails.split(","):
                         if e not in aliases:
+                            logging.debug('creando alias')
                             r = service.users().aliases().insert(userKey=userGoogle,body={"alias":e}).execute()
                             ds = cls._crearLog(r)
                             session.add(ds)
