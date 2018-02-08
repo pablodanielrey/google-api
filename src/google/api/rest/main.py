@@ -46,8 +46,8 @@ def googleUsuario(uid):
 # actualiza las bases de usuarios con la interna del sistema
 @app.route('/google/api/v1.0/actualizar_usuarios/', methods=['GET'], defaults={'uid':None})
 @app.route('/google/api/v1.0/actualizar_usuarios/<uid>', methods=['GET'])
-@app.route('/google/api_test/v1.0/actualizar_usuarios/', methods=['GET'], defaults={'uid':None})
-@app.route('/google/api_test/v1.0/actualizar_usuarios/<uid>', methods=['GET'])
+#@app.route('/google/api_test/v1.0/actualizar_usuarios/', methods=['GET'], defaults={'uid':None})
+#@app.route('/google/api_test/v1.0/actualizar_usuarios/<uid>', methods=['GET'])
 @jsonapi
 def actualizarUsuario(uid):
     ''' toma de la base de usuarios los datos y lo sincroniza internamente con la base del sistema de google '''
@@ -55,14 +55,14 @@ def actualizarUsuario(uid):
 
 # sincroniza las claves pendientes con google
 @app.route('/google/api/v1.0/sincronizar_claves/', methods=['GET'])
-@app.route('/google/api_test/v1.0/sincronizar_claves/', methods=['GET'])
+#@app.route('/google/api_test/v1.0/sincronizar_claves/', methods=['GET'])
 @jsonapi
 def sincronizarClaves():
     return GoogleModel.sincronizarClaves()
 
 # actualiza los usuarios pendientes con Google, si no existen los crea
 @app.route('/google/api/v1.0/sincronizar/', methods=['GET'])
-@app.route('/google/api_test/v1.0/sincronizar/', methods=['GET'])
+#@app.route('/google/api_test/v1.0/sincronizar/', methods=['GET'])
 @jsonapi
 def sincronizarUsuarios():
     return GoogleModel.sincronizarUsuarios()
