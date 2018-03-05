@@ -306,7 +306,8 @@ class GoogleModel:
                 return False
 
             userGoogle = s.dni + "@econo.unlp.edu.ar"
-            user = requests.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True').json()
+            r = requests.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
+            user = r.json()['usuario']
             fullName = user["nombre"] + " " + user["apellido"]
             for e in s.emails.split(","):
                 cls.agregarAliasEnviarComo(fullName, e, userGoogle)
