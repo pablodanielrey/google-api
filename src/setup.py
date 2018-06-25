@@ -35,7 +35,8 @@ setup(name='google-api',
                             'Flask',
                             'flask_jsontools',
                             'SQLAlchemy',
-                            'microservices_common'],
+                            'microservices_common',
+                            'warden-api'],
           entry_points={
             'console_scripts': [
                 'rest=google.api.rest.main:main'

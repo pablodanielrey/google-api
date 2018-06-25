@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "/src/github/assistance-api"
+		},
+		{
+			"path": "/src/github/microservices_common"
+		},
+		{
+			"path": "/src/github/warden-api"
+		}
+	],
+	"settings": {
+		"python.pythonPath": "${workspaceFolder}/env/bin/python"
+	}
+}
