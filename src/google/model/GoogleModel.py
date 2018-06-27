@@ -13,7 +13,7 @@ import time
 import logging
 logging.getLogger().setLevel(logging.DEBUG)
 
-from . import Session
+from . import obtener_session
 from .entities import *
 
 class GoogleModel:
@@ -122,49 +122,45 @@ class GoogleModel:
             session.close()
 
     @classmethod
-    def sincronizarClaves(cls):
-        session = Session()
-        try:
-            q = session.query(Sincronizacion).filter(or_(Sincronizacion.clave_sincronizada == None, Sincronizacion.clave_sincronizada < Sincronizacion.clave_actualizada))
+    def sincronizarClaves(cls, session):
+        q = session.query(Sincronizacion).filter(or_(Sincronizacion.clave_sincronizada == None, Sincronizacion.clave_sincronizada < Sincronizacion.clave_actualizada))
 
-            sync = []
-            noSync = []
-            service = GAuthApis.getServiceAdmin()
-            fecha = datetime.datetime.now()
-            for s in q:
-                if s.error >= 5:
-                    ''' no intento sincronizar los que continuen con errores '''
-                    continue
+        sync = []
+        noSync = []
+        service = GAuthApis.getServiceAdmin()
+        fecha = datetime.datetime.now()
+        for s in q:
+            if s.error >= 5:
+                ''' no intento sincronizar los que continuen con errores '''
+                continue
 
-                userGoogle = s.dni + '@econo.unlp.edu.ar'
-                try:
-                    #update user
-                    r = service.users().update(userKey=userGoogle,body={"password":s.clave}).execute()
-                    qq = session.query(Sincronizacion).filter(Sincronizacion.id == s.id)
-                    ss = qq.all()[0]
-                    ss.clave_sincronizada = fecha
+            userGoogle = s.dni + '@econo.unlp.edu.ar'
+            try:
+                #update user
+                r = service.users().update(userKey=userGoogle,body={"password":s.clave}).execute()
+                qq = session.query(Sincronizacion).filter(Sincronizacion.id == s.id)
+                ss = qq.all()[0]
+                ss.clave_sincronizada = fecha
 
-                    ds = cls._crearLog(r)
-                    session.add(ds)
+                ds = cls._crearLog(r)
+                session.add(ds)
 
-                    session.commit()
-                    sync.append(s.dni)
+                session.commit()
+                sync.append(s.dni)
 
-                except errors.HttpError as err:
-                    logging.exception(err)
+            except errors.HttpError as err:
+                logging.exception(err)
 
-                    ds = cls._crearLog(err)
-                    session.add(ds)
-                    session.commit()
+                ds = cls._crearLog(err)
+                session.add(ds)
+                session.commit()
 
-                    s.error = s.error + 1
-                    session.commit()
+                s.error = s.error + 1
+                session.commit()
 
-                    noSync.append(s.dni)
+                noSync.append(s.dni)
 
-            return {'sincronizados':sync, 'noSincronizados':noSync}
-        finally:
-            session.close()
+        return {'sincronizados':sync, 'noSincronizados':noSync}
 
     @classmethod
     def _crearLog(cls, r):
@@ -175,127 +171,120 @@ class GoogleModel:
                 )
 
     @classmethod
-    def sincronizarUsuarios(cls):
+    def sincronizarUsuarios(cls, session):
+        q = session.query(Sincronizacion).filter(or_(Sincronizacion.usuario_creado == None,
+            and_(Sincronizacion.usuario_actualizado == None, Sincronizacion.actualizado > Sincronizacion.usuario_creado),
+            Sincronizacion.actualizado > Sincronizacion.usuario_actualizado
+            ))
 
-        session = Session()
-        try:
-            q = session.query(Sincronizacion).filter(or_(Sincronizacion.usuario_creado == None,
-                and_(Sincronizacion.usuario_actualizado == None, Sincronizacion.actualizado > Sincronizacion.usuario_creado),
-                Sincronizacion.actualizado > Sincronizacion.usuario_actualizado
-                ))
+        creados = []
+        actualizados = []
+        service = GAuthApis.getServiceAdmin()
+        fecha = datetime.datetime.now()
 
-            creados = []
-            actualizados = []
-            service = GAuthApis.getServiceAdmin()
-            fecha = datetime.datetime.now()
+        for s in q:
 
-            for s in q:
+            if s.error > 5:
+                ''' ignoro los registros que tengan errores '''
+                continue
 
-                if s.error > 5:
-                    ''' ignoro los registros que tengan errores '''
-                    continue
+            userGoogle = s.dni + '@econo.unlp.edu.ar'
+            r = requests.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
+            if not r.ok:
+                continue
 
-                userGoogle = s.dni + '@econo.unlp.edu.ar'
-                r = requests.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
-                if not r.ok:
-                    continue
+            user = r.json()['usuario']
+            fullName = user["nombre"] + " " + user["apellido"]
 
-                user = r.json()['usuario']
-                fullName = user["nombre"] + " " + user["apellido"]
+            try:
+                # datos a actualizar
+                datos = {}
+
+                datos["name"] = {"familyName": user["apellido"], "givenName": user["nombre"], "fullName": fullName}
+
+                logging.debug('actualizando usuario')
+                r = service.users().update(userKey=userGoogle,body=datos).execute()
+                ds = cls._crearLog(r)
+                session.add(ds)
+                session.commit()
+
+                # actualizar alias
+                r = service.users().aliases().list(userKey=userGoogle).execute()
+                aliases = [a['alias'] for a in r.get('aliases', [])]
+                for e in s.emails.split(","):
+                    if e not in aliases:
+                        logging.debug('creando alias')
+                        r = service.users().aliases().insert(userKey=userGoogle,body={"alias":e}).execute()
+                        ds = cls._crearLog(r)
+                        session.add(ds)
+                        session.commit()
+
+                s.usuario_actualizado = fecha
+                s.actualizado = fecha
+                if s.usuario_creado is None:
+                    s.usuario_creado = fecha
+
+                session.commit()
+
+                actualizados.append(datos)
+
+            except errors.HttpError as err:
+                ds = cls._crearLog(err)
+                session.add(ds)
+                session.commit()
+                logging.exception(err)
+
+                s.error = s.error + 1
+                session.commit()
 
                 try:
-                    # datos a actualizar
+                    # crear usuario
                     datos = {}
+                    datos["aliases"] = s.emails.split(",")
+                    datos["changePasswordAtNextLogin"] = False
+                    datos["primaryEmail"] = userGoogle
+                    datos["emails"] = [{'address': userGoogle, 'primary': True, 'type': 'work'}]
 
-                    datos["name"] = {"familyName": user["apellido"], "givenName": user["nombre"], "fullName": fullName}
+                    datos["name"] = {"givenName": user["nombre"], "fullName": fullName, "familyName": user["apellido"]}
+                    datos["password"] = s.clave
+                    datos["externalIds"] = [{'type': 'custom', 'value': s.id}]
 
-                    logging.debug('actualizando usuario')
-                    r = service.users().update(userKey=userGoogle,body=datos).execute()
+                    r = service.users().insert(body=datos).execute()
+
                     ds = cls._crearLog(r)
                     session.add(ds)
-                    session.commit()
 
-                    # actualizar alias
-                    r = service.users().aliases().list(userKey=userGoogle).execute()
-                    aliases = [a['alias'] for a in r.get('aliases', [])]
+                    # crear alias
                     for e in s.emails.split(","):
-                        if e not in aliases:
-                            logging.debug('creando alias')
-                            r = service.users().aliases().insert(userKey=userGoogle,body={"alias":e}).execute()
-                            ds = cls._crearLog(r)
-                            session.add(ds)
-                            session.commit()
+                        print("Correo a agregar enviar como:{}".format(e))
+                        r = service.users().aliases().insert(userKey=userGoogle,body={"alias":e}).execute()
+                        ds = cls._crearLog(r)
+                        session.add(ds)
 
+                    s.usuario_creado = fecha
                     s.usuario_actualizado = fecha
-                    s.actualizado = fecha
-                    if s.usuario_creado is None:
-                        s.usuario_creado = fecha
 
+                    '''
+                    # agregar los correos a enviar como
+                    print("Esperar 2 segundos para que se cree el usuario")
+                    time.sleep(2)
+                    for e in s.emails.split(","):
+                        cls.agregarAliasEnviarComo(fullName, e, userGoogle)
+                    '''
                     session.commit()
 
-                    actualizados.append(datos)
+                    creados.append(datos)
 
-                except errors.HttpError as err:
-                    ds = cls._crearLog(err)
+                except Exception as err2:
+                    ds = cls._crearLog(err2)
                     session.add(ds)
                     session.commit()
-                    logging.exception(err)
+                    logging.exception(err2)
 
                     s.error = s.error + 1
                     session.commit()
 
-                    try:
-                        # crear usuario
-                        datos = {}
-                        datos["aliases"] = s.emails.split(",")
-                        datos["changePasswordAtNextLogin"] = False
-                        datos["primaryEmail"] = userGoogle
-                        datos["emails"] = [{'address': userGoogle, 'primary': True, 'type': 'work'}]
-
-                        datos["name"] = {"givenName": user["nombre"], "fullName": fullName, "familyName": user["apellido"]}
-                        datos["password"] = s.clave
-                        datos["externalIds"] = [{'type': 'custom', 'value': s.id}]
-
-                        r = service.users().insert(body=datos).execute()
-
-                        ds = cls._crearLog(r)
-                        session.add(ds)
-
-                        # crear alias
-                        for e in s.emails.split(","):
-                            print("Correo a agregar enviar como:{}".format(e))
-                            r = service.users().aliases().insert(userKey=userGoogle,body={"alias":e}).execute()
-                            ds = cls._crearLog(r)
-                            session.add(ds)
-
-                        s.usuario_creado = fecha
-                        s.usuario_actualizado = fecha
-
-                        '''
-                        # agregar los correos a enviar como
-                        print("Esperar 2 segundos para que se cree el usuario")
-                        time.sleep(2)
-                        for e in s.emails.split(","):
-                            cls.agregarAliasEnviarComo(fullName, e, userGoogle)
-                        '''
-                        session.commit()
-
-                        creados.append(datos)
-
-                    except Exception as err2:
-                        ds = cls._crearLog(err2)
-                        session.add(ds)
-                        session.commit()
-                        logging.exception(err2)
-
-                        s.error = s.error + 1
-                        session.commit()
-
-
-            return {'creados':creados, 'actualizados':actualizados}
-
-        finally:
-            session.close()
+        return {'creados':creados, 'actualizados':actualizados}
 
     @classmethod
     def agregarEnviarComo(cls, id):
