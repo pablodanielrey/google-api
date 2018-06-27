@@ -31,8 +31,8 @@ def googleUsuario(uid):
 #@app.route('/google/api_test/v1.0/actualizar_usuarios/<uid>', methods=['GET'])
 @jsonapi
 def actualizarUsuario(uid):
-    ''' toma de la base de usuarios los datos y lo sincroniza internamente con la base del sistema de google '''
-    return GoogleModel.actualizarUsuarios(uid)
+    with obtener_session() as session:
+        return GoogleModel.actualizarUsuarios(session, uid)
 
 # sincroniza las claves pendientes con google
 @app.route(API_BASE + '/sincronizar_claves/', methods=['GET'])
