@@ -28,98 +28,94 @@ class GoogleModel:
 
 
     @classmethod
-    def actualizarUsuarios(cls, uid=None):
+    def actualizarUsuarios(cls, session, uid=None):
         usuarios = []
-        session = Session()
-        try:
-            if uid:
-                params = {'c':True}
-                resp = requests.get(cls.sileg_url + '/usuarios/'+ uid, params=params)
-                if resp.status_code == 200:
-                    datos = resp.json()
-                    if 'usuario' in datos:
-                        usuarios.append(datos['usuario'])
+        if uid:
+            params = {'c':True}
+            resp = requests.get(cls.sileg_url + '/usuarios/'+ uid, params=params)
+            if resp.status_code == 200:
+                datos = resp.json()
+                if 'usuario' in datos:
+                    usuarios.append(datos['usuario'])
+        else:
+            result = session.query(func.max(Sincronizacion.actualizado)).first()
+            result = result if result[0] else session.query(func.max(Sincronizacion.creado)).first()
+            fecha = result[0]
+            q = '{}{}'.format(cls.sileg_url, '/usuarios/')
+            params = {'c':True}
+            if fecha:
+                params['f'] = fecha - datetime.timedelta(hours=24)
             else:
-                result = session.query(func.max(Sincronizacion.actualizado)).first()
-                result = result if result[0] else session.query(func.max(Sincronizacion.creado)).first()
-                fecha = result[0]
-                q = '{}{}'.format(cls.sileg_url, '/usuarios/')
-                params = {'c':True}
-                if fecha:
-                    params['f'] = fecha - datetime.timedelta(hours=24)
-                else:
-                    params['f'] = datetime.datetime.now() - datetime.timedelta(days=9000)
-                resp = requests.get(q, params=params)
-                if resp.status_code == 200:
-                    susuarios = resp.json()
-                    usuarios = [u['usuario'] for u in susuarios]
+                params['f'] = datetime.datetime.now() - datetime.timedelta(days=9000)
+            resp = requests.get(q, params=params)
+            if resp.status_code == 200:
+                susuarios = resp.json()
+                usuarios = [u['usuario'] for u in susuarios]
 
-            ignorados = []
-            actualizados = []
-            creados = []
-            for u in usuarios:
-                emails = []
-                if 'mails' in u:
-                    #emails = [m['email'] for m in u['mails'] if 'econo.unlp.edu.ar' in m['email'] and 'fecha_confirmado' in m and m['fecha_confirmado'] != None]
-                    #CAMBIAR!!!!!! TODO
-                    # en vez de lo de arriba ahora necesario para los sistemas viejos que usan el booleano en vez de la fecha de confirmado
-                    for m in u['mails']:
-                        if 'eliminado' in m and m['eliminado'] != None:
-                            continue
-                        if 'econo.unlp.edu.ar' in m['email']:
-                            if 'fecha_confirmado' in m and m['fecha_confirmado'] != None:
-                                emails.append(m['email'])
-                            elif 'confirmado' in m and m['confirmado']:
-                                emails.append(m['email'])
+        ignorados = []
+        actualizados = []
+        creados = []
+        for u in usuarios:
+            emails = []
+            if 'mails' in u:
+                #emails = [m['email'] for m in u['mails'] if 'econo.unlp.edu.ar' in m['email'] and 'fecha_confirmado' in m and m['fecha_confirmado'] != None]
+                #CAMBIAR!!!!!! TODO
+                # en vez de lo de arriba ahora necesario para los sistemas viejos que usan el booleano en vez de la fecha de confirmado
+                for m in u['mails']:
+                    if 'eliminado' in m and m['eliminado'] != None:
+                        continue
+                    if 'econo.unlp.edu.ar' in m['email']:
+                        if 'fecha_confirmado' in m and m['fecha_confirmado'] != None:
+                            emails.append(m['email'])
+                        elif 'confirmado' in m and m['confirmado']:
+                            emails.append(m['email'])
 
 
-                clave = None
-                if 'claves' in u:
-                    clave = u['claves'][0] if len(u['claves']) > 0 else None
+            clave = None
+            if 'claves' in u:
+                clave = u['claves'][0] if len(u['claves']) > 0 else None
 
-                if clave is None:
-                    ignorados.append('{} - clave nula'.format(u['dni']))
-                    continue
+            if clave is None:
+                ignorados.append('{} - clave nula'.format(u['dni']))
+                continue
 
-                if len(emails) <= 0:
-                    ignorados.append('{} - sin mails'.format(u['dni']))
-                    continue
+            if len(emails) <= 0:
+                ignorados.append('{} - sin mails'.format(u['dni']))
+                continue
 
-                emails = ",".join([x for x in sorted(emails)])
-                clave_actualizada = parse(clave['actualizado']) if clave['actualizado'] and clave['actualizado'] != 'null' else parse(clave['creado'])
+            emails = ",".join([x for x in sorted(emails)])
+            clave_actualizada = parse(clave['actualizado']) if clave['actualizado'] and clave['actualizado'] != 'null' else parse(clave['creado'])
 
-                sinc = session.query(Sincronizacion).filter(Sincronizacion.id == u['id']).first()
-                if sinc:
-                    ''' actualizo los datos que fueron modificados '''
-                    modificado = False
-                    if sinc.clave != clave['clave']:
-                        sinc.clave = clave['clave']
-                        sinc.clave_actualizada = clave_actualizada
-                        sinc.clave_id = clave['id']
-                        actualizados.append('{} - clave'.format(u['dni']))
+            sinc = session.query(Sincronizacion).filter(Sincronizacion.id == u['id']).first()
+            if sinc:
+                ''' actualizo los datos que fueron modificados '''
+                modificado = False
+                if sinc.clave != clave['clave']:
+                    sinc.clave = clave['clave']
+                    sinc.clave_actualizada = clave_actualizada
+                    sinc.clave_id = clave['id']
+                    actualizados.append('{} - clave'.format(u['dni']))
 
-                    if emails != sinc.emails:
-                        sinc.emails = emails
-                        actualizados.append('{} - email'.format(u['dni']))
+                if emails != sinc.emails:
+                    sinc.emails = emails
+                    actualizados.append('{} - email'.format(u['dni']))
 
-                else:
-                    ''' crear usuario '''
-                    s = Sincronizacion(
-                        id=u['id'],
-                        dni=u['dni'],
-                        clave_id=clave['id'],
-                        clave=clave['clave'],
-                        clave_actualizada=parse(clave['actualizado']) if clave['actualizado'] and clave['actualizado'] != 'null' else parse(clave['creado']),
-                        emails=emails
-                    )
-                    session.add(s)
-                    creados.append(u['dni'])
+            else:
+                ''' crear usuario '''
+                s = Sincronizacion(
+                    id=u['id'],
+                    dni=u['dni'],
+                    clave_id=clave['id'],
+                    clave=clave['clave'],
+                    clave_actualizada=parse(clave['actualizado']) if clave['actualizado'] and clave['actualizado'] != 'null' else parse(clave['creado']),
+                    emails=emails
+                )
+                session.add(s)
+                creados.append(u['dni'])
 
-                session.commit()
+            session.commit()
 
-            return {'analizados':[u['dni'] for u in usuarios], 'actualizados':actualizados, 'creados':creados, 'ignorados':ignorados}
-        finally:
-            session.close()
+        return {'analizados':[u['dni'] for u in usuarios], 'actualizados':actualizados, 'creados':creados, 'ignorados':ignorados}
 
     @classmethod
     def sincronizarClaves(cls, session):
@@ -287,22 +283,18 @@ class GoogleModel:
         return {'creados':creados, 'actualizados':actualizados}
 
     @classmethod
-    def agregarEnviarComo(cls, id):
-        session = Session()
-        try:
-            s = session.query(Sincronizacion).filter(Sincronizacion.id == id).one()
-            if s is None:
-                return False
+    def agregarEnviarComo(cls, session, id):
+        s = session.query(Sincronizacion).filter(Sincronizacion.id == id).one()
+        if s is None:
+            return False
 
-            userGoogle = s.dni + "@econo.unlp.edu.ar"
-            r = requests.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
-            user = r.json()['usuario']
-            fullName = user["nombre"] + " " + user["apellido"]
-            for e in s.emails.split(","):
-                cls.agregarAliasEnviarComo(fullName, e, userGoogle)
-            return True
-        finally:
-            session.close()
+        userGoogle = s.dni + "@econo.unlp.edu.ar"
+        r = requests.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
+        user = r.json()['usuario']
+        fullName = user["nombre"] + " " + user["apellido"]
+        for e in s.emails.split(","):
+            cls.agregarAliasEnviarComo(fullName, e, userGoogle)
+        return True
 
     @classmethod
     def agregarAliasEnviarComo(cls, name, email, userKeyG):

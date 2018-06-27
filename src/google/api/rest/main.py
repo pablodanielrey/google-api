@@ -3,15 +3,61 @@ logging.getLogger().setLevel(logging.INFO)
 import sys
 import os
 from flask import Flask, abort, make_response, jsonify, url_for, request, json
-from google.model import GoogleModel
 from flask_jsontools import jsonapi
 
 from rest_utils import register_encoder
+
+from google.model import obtener_session, GoogleModel
 
 app = Flask(__name__)
 register_encoder(app)
 
 API_BASE = os.environ['API_BASE']
+
+
+# actualiza las bases de usuarios con la interna del sistema, dispara toda la sincronizacion
+@app.route(API_BASE + '/google_usuario/<uid>', methods=['GET'])
+@jsonapi
+def googleUsuario(uid):
+    with obtener_session() as session:
+        GoogleModel.actualizarUsuarios(session, uid)
+        GoogleModel.sincronizarUsuarios(session)
+        GoogleModel.sincronizarClaves(session)
+
+# actualiza las bases de usuarios con la interna del sistema
+@app.route(API_BASE + '/actualizar_usuarios/', methods=['GET'], defaults={'uid':None})
+@app.route(API_BASE + '/actualizar_usuarios/<uid>', methods=['GET'])
+#@app.route('/google/api_test/v1.0/actualizar_usuarios/', methods=['GET'], defaults={'uid':None})
+#@app.route('/google/api_test/v1.0/actualizar_usuarios/<uid>', methods=['GET'])
+@jsonapi
+def actualizarUsuario(uid):
+    ''' toma de la base de usuarios los datos y lo sincroniza internamente con la base del sistema de google '''
+    return GoogleModel.actualizarUsuarios(uid)
+
+# sincroniza las claves pendientes con google
+@app.route(API_BASE + '/sincronizar_claves/', methods=['GET'])
+#@app.route('/google/api_test/v1.0/sincronizar_claves/', methods=['GET'])
+@jsonapi
+def sincronizarClaves():
+    with obtener_session() as session:
+        return GoogleModel.sincronizarClaves(session)
+
+# actualiza los usuarios pendientes con Google, si no existen los crea
+@app.route(API_BASE + '/sincronizar/', methods=['GET'])
+#@app.route('/google/api_test/v1.0/sincronizar/', methods=['GET'])
+@jsonapi
+def sincronizarUsuarios():
+    with obtener_session() as session:
+        return GoogleModel.sincronizarUsuarios(session)
+
+# agrega los e-mails del id pasado como parametro como alias en gmail (enviarComo)
+@app.route(API_BASE + '/enviar_como/<uid>', methods=['GET'])
+@jsonapi
+def enviarComo(uid):
+    with obtener_session() as session:
+        return GoogleModel.agregarEnviarComo(session, uid)
+
+
 
 @app.route(API_BASE + '/actualizar_usuarios/', methods=['OPTIONS'])
 @app.route(API_BASE + '/actualizar_usuarios/<uid>', methods=['OPTIONS'])
@@ -36,46 +82,6 @@ def options(uid=None):
     r.headers['Access-Control-Allow-Headers'] = rh
     r.headers['Access-Control-Max-Age'] = 1
     return r
-
-
-# actualiza las bases de usuarios con la interna del sistema, dispara toda la sincronizacion
-@app.route(API_BASE + '/google_usuario/<uid>', methods=['GET'])
-@jsonapi
-def googleUsuario(uid):
-    GoogleModel.actualizarUsuarios(uid)
-    GoogleModel.sincronizarUsuarios()
-    GoogleModel.sincronizarClaves()
-
-# actualiza las bases de usuarios con la interna del sistema
-@app.route(API_BASE + '/actualizar_usuarios/', methods=['GET'], defaults={'uid':None})
-@app.route(API_BASE + '/actualizar_usuarios/<uid>', methods=['GET'])
-#@app.route('/google/api_test/v1.0/actualizar_usuarios/', methods=['GET'], defaults={'uid':None})
-#@app.route('/google/api_test/v1.0/actualizar_usuarios/<uid>', methods=['GET'])
-@jsonapi
-def actualizarUsuario(uid):
-    ''' toma de la base de usuarios los datos y lo sincroniza internamente con la base del sistema de google '''
-    return GoogleModel.actualizarUsuarios(uid)
-
-# sincroniza las claves pendientes con google
-@app.route(API_BASE + '/sincronizar_claves/', methods=['GET'])
-#@app.route('/google/api_test/v1.0/sincronizar_claves/', methods=['GET'])
-@jsonapi
-def sincronizarClaves():
-    return GoogleModel.sincronizarClaves()
-
-# actualiza los usuarios pendientes con Google, si no existen los crea
-@app.route(API_BASE + '/sincronizar/', methods=['GET'])
-#@app.route('/google/api_test/v1.0/sincronizar/', methods=['GET'])
-@jsonapi
-def sincronizarUsuarios():
-    return GoogleModel.sincronizarUsuarios()
-
-# agrega los e-mails del id pasado como parametro como alias en gmail (enviarComo)
-@app.route(API_BASE + '/enviar_como/<uid>', methods=['GET'])
-@jsonapi
-def enviarComo(uid):
-    return GoogleModel.agregarEnviarComo(uid)
-
 
 @app.after_request
 def add_header(r):
