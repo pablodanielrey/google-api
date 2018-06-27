@@ -13,12 +13,39 @@ import time
 import logging
 logging.getLogger().setLevel(logging.DEBUG)
 
+from oidc.oidc import ClientCredentialsGrant
+
 from . import obtener_session
 from .entities import *
 
 class GoogleModel:
 
     sileg_url = os.environ['SILEG_API_URL']
+    client_id = os.environ['OIDC_CLIENT_ID']
+    client_secret = os.environ['OIDC_CLIENT_SECRET']
+    verify = True
+
+    @classmethod
+    def _get_token(cls):
+        grant = ClientCredentialsGrant(cls.client_id, cls.client_secret)
+        token = grant.get_token(grant.access_token())
+        if not token:
+            raise Exception()
+        return token
+
+    @classmethod
+    def get(cls, api, params=None, token=None):
+        if not token:
+            token = cls._get_token()
+
+        ''' se deben cheqeuar intentos de login, y disparar : SeguridadError en el caso de que se haya alcanzado el máximo de intentos '''
+        headers = {
+            'Authorization': 'Bearer {}'.format(token)
+        }
+        r = requests.get(api, verify=cls.verify, headers=headers, params=params)
+        return r
+
+
 
     @staticmethod
     def _aplicar_filtros_comunes(q, offset, limit):
@@ -32,7 +59,7 @@ class GoogleModel:
         usuarios = []
         if uid:
             params = {'c':True}
-            resp = requests.get(cls.sileg_url + '/usuarios/'+ uid, params=params)
+            resp = cls.get(cls.sileg_url + '/usuarios/'+ uid, params=params)
             if resp.status_code == 200:
                 datos = resp.json()
                 if 'usuario' in datos:
@@ -47,7 +74,7 @@ class GoogleModel:
                 params['f'] = fecha - datetime.timedelta(hours=24)
             else:
                 params['f'] = datetime.datetime.now() - datetime.timedelta(days=9000)
-            resp = requests.get(q, params=params)
+            resp = cls.get(q, params=params)
             if resp.status_code == 200:
                 susuarios = resp.json()
                 usuarios = [u['usuario'] for u in susuarios]
@@ -185,7 +212,7 @@ class GoogleModel:
                 continue
 
             userGoogle = s.dni + '@econo.unlp.edu.ar'
-            r = requests.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
+            r = cls.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
             if not r.ok:
                 continue
 
@@ -289,15 +316,15 @@ class GoogleModel:
             return False
 
         userGoogle = s.dni + "@econo.unlp.edu.ar"
-        r = requests.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
+        r = cls.get(cls.sileg_url + '/usuarios/'+ s.id +'?c=True')
         user = r.json()['usuario']
         fullName = user["nombre"] + " " + user["apellido"]
         for e in s.emails.split(","):
-            cls.agregarAliasEnviarComo(fullName, e, userGoogle)
+            cls.agregarAliasEnviarComo(session, fullName, e, userGoogle)
         return True
 
     @classmethod
-    def agregarAliasEnviarComo(cls, name, email, userKeyG):
+    def agregarAliasEnviarComo(cls, session, name, email, userKeyG):
         alias = {
             'displayName': name,
             'replyToAddress': email,
@@ -308,26 +335,17 @@ class GoogleModel:
         }
         print("enviar como:{}".format(name))
         print("alias:{}".format(alias))
-        session = Session()
-        try:
+        gmail = GAuthApis.getServiceGmail(userKeyG)
 
-            try:
-                gmail = GAuthApis.getServiceGmail(userKeyG)
-
-                r = gmail.users().settings().sendAs().list(userId='me').execute()
-                aliases = [ a['sendAsEmail'] for a in r['sendAs'] ]
-                print('alias encontrados : {} '.format(aliases))
+        r = gmail.users().settings().sendAs().list(userId='me').execute()
+        aliases = [ a['sendAsEmail'] for a in r['sendAs'] ]
+        print('alias encontrados : {} '.format(aliases))
 
 
-                if alias['sendAsEmail'] not in aliases:
-                    print('creando alias')
-                    r = gmail.users().settings().sendAs().create(userId='me', body=alias).execute()
-                    ds = cls._crearLog(r)
-                    session.add(ds)
-                    session.commit()
+        if alias['sendAsEmail'] not in aliases:
+            print('creando alias')
+            r = gmail.users().settings().sendAs().create(userId='me', body=alias).execute()
+            ds = cls._crearLog(r)
+            session.add(ds)
+            session.commit()
 
-            except Exception as e:
-                print(e)
-
-        finally:
-            session.close()
